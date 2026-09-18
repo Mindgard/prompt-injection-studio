@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@2af22b5b2dcfc0729ee842c635f300f1fc5a9e9a # v5.0.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check pistudio tests
+      - run: uv run ruff format --check pistudio tests
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@2af22b5b2dcfc0729ee842c635f300f1fc5a9e9a # v5.0.0
+        with:
+          enable-cache: true
+      # --all-extras so the optional-generator tests run rather than skip.
+      - run: uv sync --locked --all-extras --python ${{ matrix.python }}
+      - run: uv run --no-sync pytest -q
+
+  # The sdist must be buildable and self-verifying: a downstream packager
+  # builds from it, and the tests it ships should pass (skipping, not
+  # failing, where an optional extra is absent).
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@2af22b5b2dcfc0729ee842c635f300f1fc5a9e9a # v5.0.0
+        with:
+          enable-cache: true
+      - run: uv build
+      - name: Wheel ships its package data and licence
+        run: |
+          uv run --no-project --with twine twine check dist/*
+          python - <<'PY'
+          import glob, zipfile
+          names = zipfile.ZipFile(sorted(glob.glob("dist/*.whl"))[-1]).namelist()
+          data = [n for n in names
+                  if not n.endswith((".py", "/")) and "dist-info" not in n]
+          # Name the files rather than counting them: a threshold drifts
+          # silently when package data is added or removed, and the point is
+          # that the carriers the audio examples cite are actually shipped.
+          required = (
+              "pistudio/examples/payloads.csv",
+              "pistudio/examples/carriers/low-drone.wav",
+              "pistudio/examples/carriers/synthwave-ambient.wav",
+              "pistudio/examples/carriers/digital-noise.wav",
+          )
+          missing = [n for n in required if n not in names]
+          assert not missing, f"package data missing from wheel: {missing}"
+          assert any("licenses/LICENSE" in n for n in names), "licence missing from wheel"
+          print(f"{len(data)} data files, all required carriers present, licence present")
+          PY
+      - name: Build and test from the sdist
+        run: |
+          mkdir -p /tmp/from-sdist && tar xzf dist/*.tar.gz -C /tmp/from-sdist --strip-components=1
+          cd /tmp/from-sdist
+          uv build --wheel
+          uv venv
+          uv pip install dist/*.whl pytest pytest-asyncio pytest-mock
+          uv run --no-project pytest tests -q
+
+  # The base install must stay usable on its own: heavy generators are
+  # opt-in extras, and formats whose dependencies are absent must report an
+  # install hint rather than crashing.
+  base-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@2af22b5b2dcfc0729ee842c635f300f1fc5a9e9a # v5.0.0
+      - run: uv python install 3.12
+      - run: uv pip install --system .
+      - name: Core commands work with no extras
+        run: |
+          pistudio --help
+          pistudio --version
+          pistudio payloads list
+          pistudio file list
+          pistudio barcode "ci smoke test" --type qr
+          pistudio theme
+      - name: Missing extras produce an install hint, not a traceback
+        env:
+          # Stop Rich wrapping the message mid-token so the check can match it.
+          COLUMNS: "200"
+        run: |
+          out=$(pistudio file pdf "x" --output /tmp/x.pdf 2>&1 | tr -s '[:space:]' ' ')
+          case "$out" in
+            *"prompt-injection-studio[embed]"*)
+              echo "install hint present" ;;
+            *Traceback*)
+              echo "expected an install hint, got a traceback: $out" >&2; exit 1 ;;
+            *)
+              echo "expected an install hint naming the embed extra, got: $out" >&2; exit 1 ;;
+          esac
+          test ! -f /tmp/x.pdf
+      - name: Payload server round-trip
+        run: |
+          python - <<'PY'
+          import time, urllib.request
+          from pistudio.commands import register_all_commands
+          from pistudio.commands.studio import StudioCommand
+          from pistudio.core.studio import Studio
+          from pistudio.serve import get_registry
+
+          register_all_commands()
+          studio = Studio()
+          cmd = StudioCommand()
+          cmd.execute(studio, ["serve", "ci smoke payload", "--port", "8123"])
+          slug = get_registry().list_all()[0].slug
+          time.sleep(1)
+          body = urllib.request.urlopen(f"http://127.0.0.1:8123/p/{slug}", timeout=10).read().decode()
+          assert body == "ci smoke payload", body
+          cmd.execute(studio, ["serve", "stop"])
+          print("payload server round-trip OK")
+          PY

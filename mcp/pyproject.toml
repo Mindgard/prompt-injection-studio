@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pistudio-mcp"
+version = "0.1.0"
+description = "MCP server that exposes Prompt Injection Studio as natural-language tools"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Mindgard", email = "support@mindgard.ai" }]
+keywords = ["mindgard", "mcp", "model-context-protocol", "security", "red-team", "prompt-injection"]
+
+# Pure CLI wrapper: the only runtime dependency is the MCP framework. Every
+# capability comes from the `pistudio` binary, driven as a subprocess — not
+# imported — so this server does not depend on the studio's own dependency tree
+# (rich, pydantic, pyserial, PIL, and the optional format extras). The studio
+# just needs to be installed and on PATH, or pointed to via PISTUDIO_BIN.
+#
+# Pinned exactly with uv.lock committed: this server drives tools that write to
+# physical devices and publish payloads to the network, so an install needs to
+# be reproducible rather than resolving to whatever is newest.
+dependencies = [
+    "mcp == 1.28.1",
+]
+
+[project.scripts]
+pistudio-mcp = "pistudio_mcp.server:main"
+
+[project.optional-dependencies]
+dev = [
+    "ruff == 0.16.0",
+    "pytest == 9.1.1",
+    "pytest-asyncio == 1.4.0",
+    "pytest-cov == 7.1.0",
+    "pip-audit == 2.9.0",
+    "ty == 0.0.75",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pistudio_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# A floor, deliberately below the current number: a gate pinned to the exact
+# figure turns every refactor into a threshold edit.
+addopts = [
+    "--cov=pistudio_mcp",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-fail-under=90",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/pistudio_mcp"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.rules]
+possibly-missing-attribute = "error"
+possibly-missing-import = "error"
+possibly-unresolved-reference = "error"
+unresolved-attribute = "error"
+invalid-return-type = "error"
+redundant-cast = "error"
+unused-ignore-comment = "error"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# "S" is flake8-bandit: for a server whose job is spawning subprocesses, the
+# security rules belong in the normal lint run. The one unavoidable S603 call
+# carries an inline justification.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "TID", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"

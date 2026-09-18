@@ -1,0 +1,3 @@
+[submodule "vendor/flipper-field-kit"]
+	path = vendor/flipper-field-kit
+	url = https://github.com/Mindgard/flipperzero-prompt-injection-field-kit.git

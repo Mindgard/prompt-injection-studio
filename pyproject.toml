@@ -1,0 +1,156 @@
+[build-system]
+requires = ["uv_build >= 0.9, < 0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "prompt-injection-studio"
+version = "0.1.0"
+description = "Create, host, and physically deliver prompt injection payloads."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Mindgard", email = "support@mindgard.ai" }]
+keywords = [
+    "ai-security",
+    "prompt-injection",
+    "llm",
+    "red-team",
+    "flipper-zero",
+    "hak5",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
+
+# Base install = payload library + hosting + stdlib file formats + QR.
+# Heavy generators live behind extras; every writer imports its dependency
+# lazily and raises a friendly install hint, so a base install degrades
+# gracefully rather than failing at import time.
+dependencies = [
+    "pydantic >= 2.10, < 3",
+    "rich >= 13.7, < 14",
+    "prompt-toolkit >= 3.0, < 4",
+    "uvicorn >= 0.30, < 1",
+    "starlette >= 0.38, < 1",
+    "cryptography >= 42.0, < 47",
+    "segno >= 1.6, < 2",
+    "requests >= 2.28",
+]
+
+[project.optional-dependencies]
+# Group names mirror the `group=` field on FileFormat entries in
+# pistudio/files/formats/, so the install hints commands print are correct.
+# Two groups deliberately break that mirror -- `embed-anamorpher` and
+# `embed-adversarial-audio` are provisioned into their own venvs, not by pip.
+# See RUNTIME_PROVISIONED in pistudio/files/formats/registry.py.
+embed = [
+    "fpdf2 >= 2.7, < 3",
+    "python-docx >= 1.1, < 2",
+    "python-pptx >= 1.0, < 2",
+    "openpyxl >= 3.1, < 4",
+    "Pillow >= 10.0, < 12",
+]
+embed-extra = ["fonttools >= 4.47, < 5", "numpy >= 1.24, < 2"]
+embed-notebook = ["nbformat >= 5.9, < 6"]
+embed-audio = ["mutagen >= 1.47, < 2", "mido >= 1.3, < 2"]
+embed-audio-tts = ["edge-tts >= 6.1, < 8", "pydub >= 0.25, < 1"]
+embed-audio-adv = ["numpy >= 1.24, < 2", "scipy >= 1.10, < 2"]
+embed-video = ["moviepy >= 2.0"]
+# segno (QR) is already a base dependency; declared so install hints resolve.
+# treepoem also needs a Ghostscript system binary, which pip cannot install.
+barcode = ["segno >= 1.6, < 2", "python-barcode >= 0.15, < 1", "treepoem >= 3.0, < 4"]
+hardware = ["pyserial >= 3.5, < 4"]
+# Live audio playback into a room; needs a working PortAudio at the system level.
+acoustic = ["sounddevice >= 0.4, < 1", "numpy >= 1.24, < 2"]
+# Decodes generated codes to prove they scan; printing itself needs only CUPS.
+verify = ["zxing-cpp >= 2.2", "Pillow >= 10.0, < 12"]
+ngrok = ["pyngrok >= 7.0, < 8"]
+llm = ["pydantic-ai-slim[openai] >= 0.1, < 2", "openai >= 1.16"]
+
+embed-all = [
+    "prompt-injection-studio[embed,embed-extra,embed-notebook,embed-audio,embed-audio-tts]",
+]
+all = [
+    "prompt-injection-studio[embed-all,embed-audio-adv,barcode,hardware,ngrok,llm,verify]",
+]
+
+[project.scripts]
+pistudio = "pistudio.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Mindgard/prompt-injection-studio"
+Issues = "https://github.com/Mindgard/prompt-injection-studio/issues"
+
+# Dev tooling is a dependency group rather than an extra: it is installed by
+# `uv sync` but never published as package metadata, so `pip install
+# prompt-injection-studio[dev]` cannot pull a test runner into a user's env.
+[dependency-groups]
+dev = [
+    "pytest >= 8.0",
+    "zxing-cpp >= 2.2",
+    "pytest-asyncio >= 0.23",
+    "pytest-mock >= 3.12",
+    "ruff >= 0.9",
+    # Encoders are serialisation code: property tests over arbitrary Unicode
+    # catch the byte-vs-codepoint bugs that fixed-width encodings invite.
+    "hypothesis >= 6.100",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+# `uv sync` installs the base package plus dev tools, which is a faithful
+# bare-user environment — the optional-generator tests skip.  Use
+# `uv sync --all-extras` for a run where nothing skips.
+
+[tool.uv.build-backend]
+# Flat layout: the package sits at the repo root rather than under src/.
+module-root = ""
+module-name = "pistudio"
+# Non-Python package data (carrier audio, the example payload library) is
+# included automatically.
+wheel-exclude = ["**/__pycache__", "**/*.pyc"]
+# Ship tests, docs and the lockfile in the sdist so a source build is both
+# verifiable and reproducible.
+source-include = [
+    "tests/**/*.py",
+    "docs/**/*.md",
+    "scripts/*.sh",
+    "uv.lock",
+    ".python-version",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "TID"]
+
+[tool.ruff.lint.per-file-ignores]
+# Stacked `with patch(...)` blocks read better than one combined statement,
+# and short loop names in assertions are fine.
+"tests/*" = ["SIM117", "E741", "SIM115"]
+# Payload text is data, not code — reflowing it would change what gets
+# delivered to the target.
+"pistudio/hardware/payloads.py" = ["E501"]
+"pistudio/files/audio.py" = ["E501"]
+"pistudio/files/barcode.py" = ["E501"]
+"pistudio/files/formats/writers_stdlib.py" = ["E501"]
+"pistudio/commands/hw/flipper_sync.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pistudio"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"

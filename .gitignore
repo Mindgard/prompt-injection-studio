@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Runtime-provisioned venvs (`file anamorph setup`, `audio adversarial-audio
+# setup`). Multi-GB each -- torch, tensorflow, opencv. Names must match
+# _VENV_SEARCH in pistudio/files/{anamorpher,adversarial_audio}.py.
+.anamorpher-venv/
+.venv-anamorpher/
+.adversarial-audio-venv/
+.venv-adversarial-audio/
+
+# Captured data — never commit these.
+# Loot normally lands in the session dir (~/.pistudio), outside any checkout,
+# but PISTUDIO_HOME can point anywhere, so ignore it by directory as well as
+# by extension.
+loot/
+wordlists/
+handshakes/
+pcap/
+live_walk/
+antennacheka/
+captures/
+*.pcap
+*.pcapng
+*.22000
+*.hccapx
+*.handshake
+*.cap
+
+# Local config and secrets
+.env
+.env.*
+!.env.example
+
+# Key material. `file cert` and `barcode` write generated certificates and
+# codes into the working directory, and a generated cert still carries a real
+# private key -- so ignore them by extension rather than relying on care.
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime state
+.pistudio/
+
+# OS
+.DS_Store

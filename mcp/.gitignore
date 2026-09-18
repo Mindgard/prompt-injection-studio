@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+# The MCP server builds independently of the studio, so it gets its own
+# build output directory.
+dist/
